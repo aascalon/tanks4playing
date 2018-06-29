@@ -6,6 +6,7 @@
 ; * @date     06. April 2011
 ; *
 ; * @note
+                                                                            
 ; * Copyright (C) 2009-2011 ARM Limited. All rights reserved.
 ; *
 ; * @par

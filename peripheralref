@@ -1,0 +1,210 @@
+#include <lpc17xx.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <RTL.h>
+#include "GLCD.h"
+void myleds(int num){
+	int i;
+	int mask = 1;
+	int digit = 0;
+	int output = 0;
+	int gpio1, gpio2;
+	for (i= 0; i < 8; i++)
+	{
+		digit = (num & mask);
+		if(i == 0)
+			digit = (digit << 6);
+		else if(i == 1)
+			digit = (digit << 4);
+		else if(i == 2)
+			digit = (digit << 2);
+		else if(i == 4)
+			digit = (digit >> 2);
+		else if(i == 5)
+			digit = (digit << 26);
+		else if(i == 6)
+			digit =(digit << 23);
+		else if (i == 7)
+			digit = (digit << 21);
+		
+		output |= digit; 
+		mask = (mask << 1);
+		digit = 0;
+	}
+
+	gpio1 = (output & 0xB0000000);
+	gpio2 = (output & 0x0000007C) ;
+
+	LPC_GPIO1->FIOSET = gpio1;
+	LPC_GPIO2->FIOSET = gpio2;
+	
+
+}
+
+void mystick(void)
+{
+	while(69){
+		if((~LPC_GPIO1->FIOPIN & 0x07900000)){
+			if(~LPC_GPIO1->FIOPIN & 0x04000000)
+						printf("down, ");
+			if(~LPC_GPIO1->FIOPIN & 0x02000000)
+						printf("right, ");
+			if(~LPC_GPIO1->FIOPIN & 0x00800000)
+						printf("left, ");
+			if(~LPC_GPIO1->FIOPIN & 0x01000000)
+						printf("up, ");
+			if(~LPC_GPIO1->FIOPIN & 0x00100000)
+						printf("pressed\n");
+			else
+						printf("not pressed\n");
+		}
+	}
+}
+
+void mypot(void){
+	int num = 0;
+	while(1){
+		LPC_ADC->ADCR |= 0x01000000 ; //start a conversion
+		while ( !(LPC_ADC->ADGDR & 0x80000000) ) 
+		{}
+		num = ((LPC_ADC->ADGDR & 0xFFF0) >> 4);
+		printf("pot value: %d\n", num);
+	}
+}
+__task void mypotTask(void){
+	while(1){
+		int num = 0;
+		LPC_ADC->ADCR |= 0x01000000 ; //start a conversion
+		while ( !(LPC_ADC->ADGDR & 0x80000000) ) 
+		{}
+		num = ((LPC_ADC->ADGDR & 0xFFF0) >> 4);
+		printf("pot value: %d\n", num);
+			
+
+	}
+}
+
+__task void touchmybutt(void){
+	while(1){
+		if(~LPC_GPIO2->FIOPIN & (1<<10)){
+			while(~LPC_GPIO2->FIOPIN & ( 1 << 10 ) )
+			{}
+			//if LED is off
+			if(~LPC_GPIO2->FIOPIN & (1 << 6 ) )
+				LPC_GPIO2->FIOSET |= (1 << 6 );
+			
+			else
+				LPC_GPIO2->FIOCLR |= (1 << 6 );
+		}
+			os_tsk_pass();
+
+			
+	}
+}
+void suckmydisp(void){
+	GLCD_Init();
+	GLCD_Clear(0x001F);
+	GLCD_SetTextColor(0xFFFF);  
+	GLCD_SetBackColor(Blue);
+	
+	GLCD_DisplayString(4,4,1,"Hello World");
+	
+	
+}
+void suckmydisp2(int stickydir, int stickyp){
+	
+
+	switch(stickydir){
+		case(0):
+				GLCD_DisplayString(3,4,1,"No Dir");
+				break;
+		case(1):
+				GLCD_DisplayString(3,4,1,"Down  ");
+				break;
+		case(2):
+				GLCD_DisplayString(3,4,1,"Right ");
+				break;
+		case(3):
+				GLCD_DisplayString(3,4,1,"Left  ");
+				break;
+		case(4):
+				GLCD_DisplayString(3,4,1,"Up    ");
+				break;
+	}
+	switch(stickyp){
+		case(0):
+				GLCD_DisplayString(5,4,1,"No Press");
+				break;
+		case(1):
+				GLCD_DisplayString(5,4,1,"Pressed   ");
+				break;
+	
+	}
+	
+}
+__task void mystickTask(void)
+{
+	// 0 = no dir, 1 = down, 2 = right, 3 = left, 4 = up 
+	// 0 = not pressed, 1 = pressed 
+	while(1) {
+		int dir = 0;
+		int pressed = 0;
+				
+		if(~LPC_GPIO1->FIOPIN & 0x04000000)
+					dir = 1;
+		if(~LPC_GPIO1->FIOPIN & 0x02000000)
+					dir = 2;
+		if(~LPC_GPIO1->FIOPIN & 0x00800000)
+					dir = 3;
+		if(~LPC_GPIO1->FIOPIN & 0x01000000)
+					dir = 4;
+		if(~LPC_GPIO1->FIOPIN & 0x00100000)
+					pressed = 1;
+		
+		suckmydisp2(dir,pressed);
+		os_tsk_pass();
+	}
+	
+}
+__task void start_tasks(void){
+	
+	os_tsk_create(mystickTask, 1);
+	os_tsk_create(mypotTask, 1);
+	os_tsk_create(touchmybutt, 1);
+	
+	os_tsk_delete_self();
+}
+int main(void){
+	printf("Hello! Let's do Exercise 5!\n");
+	//my leds setup
+	LPC_GPIO1->FIODIR |=0xB0000000;
+	LPC_GPIO2->FIODIR |=0x0000007C;
+
+	LPC_GPIO1->FIOCLR = 0xFFFFFFFF;
+	LPC_GPIO2->FIOCLR = 0xFFFFFFFF;
+	//myleds(123);
+	//my stick setup
+	LPC_GPIO1->FIODIR |= ~(0x07900000);
+	//uncomment for ex 2
+	//mystick();
+	
+	//mypot setup
+	LPC_SC->PCONP |= 0x1000;
+  LPC_PINCON->PINSEL1 &= ~(0x03 <<18);
+	LPC_PINCON->PINSEL1 |= (0x01 <<18);
+	LPC_ADC->ADCR = (1 << 2) | (4 << 8) | (1 << 21);
+	//uncomment for ex 3 
+	//mypot();
+	//LCD start
+	GLCD_Init();
+	GLCD_Clear(0x001F);
+	GLCD_SetTextColor(0xFFFF);  
+	GLCD_SetBackColor(Blue);
+	
+	//uncomment for ex 4
+	//suckmydisp();
+	
+	os_sys_init(start_tasks);
+
+	
+}

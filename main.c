@@ -144,7 +144,63 @@ __task void aimCannon(void){
 		os_tsk_pass();
 	}
 }
-
+__task void fire(void){
+	int cleanup, x, y, xdir, ydir;
+	while(1){
+		x = tank.xPos;
+		y = tank.yPos;
+		ydir = 1;
+		xdir = 1;
+		
+		if(~LPC_GPIO2->FIOPIN & (1<<10)){
+			while(~LPC_GPIO2->FIOPIN & ( 1 << 10 ) )
+			{}
+			//if the direction is up or down we are firing in y
+			if(tank.aimDir == up || tank.aimDir == down)
+			{
+				//if the direction is up we fire in the negative y direction
+				if(tank.aimDir == up)
+					ydir = -1;
+				
+				y+=3*ydir;
+				while(field[x][y] != Navy)
+				{
+					drawPixel(x,y,Red);
+					y+= ydir;
+					os_dly_wait(1);
+				}
+				cleanup = (tank.yPos) + 3*ydir;
+				
+				while((cleanup - y)*ydir*(-1) > 0){
+					drawPixel(x,cleanup, White);
+					os_dly_wait(1);
+					cleanup += ydir;
+				}				
+			}
+			else{
+				//else the tank will fire in the x direction
+				//if the direction is left we fire in the negative x direction
+				if(tank.aimDir == left)
+					xdir = -1;
+				
+				x+=3*xdir;
+				while(field[x][y] != Navy)
+				{
+					drawPixel(x,y,Red);
+					x+= xdir;
+					os_dly_wait(1);
+				}
+				cleanup = (tank.xPos) + 3*xdir;
+				
+				while((cleanup - x)*xdir*(-1) > 0){
+					drawPixel(cleanup,y, White);
+					os_dly_wait(1);
+					cleanup += xdir;
+				}
+			}
+		}
+	}
+}
 
 void myleds(int num){
 
@@ -178,6 +234,7 @@ __task void moveTank(void)
 __task void start_tasks(void){
 	os_sem_init(&move, 1);
 	os_tsk_create(moveTank,1);
+	os_tsk_create(fire,1);
 	os_tsk_create(aimCannon,1);
 	os_tsk_delete_self();
 }
@@ -202,7 +259,7 @@ int main(void){
 	GLCD_Clear(White);
 	GLCD_SetTextColor(0xFFFF);  
 	GLCD_SetBackColor(White);
-	GLCD_SetTextColor(Red);
+	GLCD_SetTextColor(Navy);
 	
 
 	

@@ -4,7 +4,6 @@
 #include <RTL.h>
 #include "GLCD.h"
 #include <stdlib.h>
-
 #define up    0
 #define right 1
 #define down  2
@@ -16,6 +15,7 @@ uint32_t moveDelay = 1000;
 
 unsigned short field[48][64] = {White};
 uint8_t enemyQty = 0;
+
 typedef struct{
 	int xPos, yPos ,ammo, aimDir;
 }  myTank;
@@ -144,6 +144,52 @@ __task void aimCannon(void){
 		os_tsk_pass();
 	}
 }
+void updateLEDs(uint8_t ammoCount){
+	uint32_t i;
+	uint32_t mask = 1;
+	uint32_t digit = 0;
+	uint32_t output = 0;
+	uint32_t gpio1, gpio2;
+	ammoCount = (1 << (ammoCount))-1;
+	
+	//clear all LEDs so that they can be set anew
+	
+	LPC_GPIO1->FIOCLR |=  0xB0000000 ;
+	LPC_GPIO2->FIOCLR |=  0x0000007C ;
+	
+	for (i= 0; i < 8; i++)
+	{
+		printf("%d\n",ammoCount);
+		digit = (ammoCount & mask);
+		if(i == 0)
+			digit = (digit << 6);
+		else if(i == 1)
+			digit = (digit << 4);
+		else if(i == 2)
+			digit = (digit << 2);
+		else if(i == 4)
+			digit = (digit >> 2);
+		else if(i == 5)
+			digit = (digit << 26);
+		else if(i == 6)
+			digit = (digit << 23);
+		else if (i == 7)
+			digit = (digit << 21);
+		
+		output |= digit; 
+		mask = (mask << 1);
+		digit = 0;
+	}
+
+	gpio1 = (output & 0xB0000000);
+	gpio2 = (output & 0x0000007C) ;
+
+	LPC_GPIO1->FIOSET = gpio1;
+	LPC_GPIO2->FIOSET = gpio2;
+	
+}
+
+//TODO IF SPARE TIME: look into interrupts
 __task void fire(void){
 	int cleanup, x, y, xdir, ydir;
 	while(1){
@@ -152,9 +198,13 @@ __task void fire(void){
 		ydir = 1;
 		xdir = 1;
 		
-		if(~LPC_GPIO2->FIOPIN & (1<<10)){
+		//check if button is pushed AND the tank has enough ammo
+		if( (~LPC_GPIO2->FIOPIN & (1<<10)) && (tank.ammo) > 0 ){
 			while(~LPC_GPIO2->FIOPIN & ( 1 << 10 ) )
 			{}
+			//update ammo count on LEDs
+			(tank.ammo)--;
+			updateLEDs(tank.ammo);
 			//if the direction is up or down we are firing in y
 			if(tank.aimDir == up || tank.aimDir == down)
 			{
@@ -199,13 +249,11 @@ __task void fire(void){
 				}
 			}
 		}
+		
 	}
 }
 
-void myleds(int num){
 
-	
-}
 
 
 __task void moveTank(void)
@@ -247,6 +295,11 @@ int main(void){
 	LPC_PINCON->PINSEL1 |= (0x01 <<18);
 	LPC_ADC->ADCR = (1 << 2) | (4 << 8) | (1 << 21);
 	
+	//LED setup
+	LPC_GPIO1->FIODIR |=0xB0000000;
+	LPC_GPIO2->FIODIR |=0x0000007C;
+
+	
 	
 	tank.xPos = 5;
 	tank.yPos = 5;
@@ -260,7 +313,7 @@ int main(void){
 	GLCD_SetTextColor(0xFFFF);  
 	GLCD_SetBackColor(White);
 	GLCD_SetTextColor(Navy);
-	
+	updateLEDs(tank.ammo);
 
 	
 	for(x = 0; x < 48; x++)
@@ -273,10 +326,10 @@ int main(void){
 	}
 	for (i = 0; i < 48; i ++){
 		for(j = 0; j < 64; j++){
-			field[i][0] = Red;
-			field[0][j] = Red;
-			field[i][63] = Red;
-			field[47][j] = Red;
+			field[i][0] = Navy;
+			field[0][j] = Navy;
+			field[i][63] = Navy;
+			field[47][j] = Navy;
 			drawPixel(i,j,field[i][j]);
 
 		}

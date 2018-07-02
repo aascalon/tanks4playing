@@ -4,27 +4,25 @@
 #include <RTL.h>
 #include "GLCD.h"
 #include <stdlib.h>
+#include "enemy.h"
 #define up    0
 #define right 1
 #define down  2
 #define left  3
 
-OS_SEM move;
 
 uint32_t moveDelay = 1000;
 
 unsigned short field[48][64] = {White};
 uint8_t enemyQty = 0;
-
+node_t *head;
 typedef struct{
 	int xPos, yPos ,ammo, aimDir;
 }  myTank;
 
 myTank tank ; 
 
-typedef struct{
-	uint8_t xPos, yPos, id;
-} enemy;
+
 
 
 void drawPixel(int x, int y, unsigned short colour){
@@ -158,8 +156,8 @@ void updateLEDs(uint8_t ammoCount){
 	LPC_GPIO2->FIOCLR |=  0x0000007C ;
 	
 	for (i= 0; i < 8; i++)
+	
 	{
-		printf("%d\n",ammoCount);
 		digit = (ammoCount & mask);
 		if(i == 0)
 			digit = (digit << 6);
@@ -279,16 +277,27 @@ __task void moveTank(void)
 	}
 }
 
+
+
+__task void moveEnemy(void){
+}
+// __task void drawEnemies(void){
+// 	while(head != NULL){
+// 	drawPixel( (head->data).xLoc, (head->data).yLoc, Magenta);
+// 	}
+// }
 __task void start_tasks(void){
-	os_sem_init(&move, 1);
 	os_tsk_create(moveTank,1);
 	os_tsk_create(fire,1);
 	os_tsk_create(aimCannon,1);
+	//os_tsk_create(drawEnemies,1);
 	os_tsk_delete_self();
 }
 int main(void){
 	int i, j, x, y;
+	//initialise first member of linked list
 	
+	head = NULL;
 	//potentiometer setup
 	LPC_SC->PCONP |= 0x1000;
  	LPC_PINCON->PINSEL1 &= ~(0x03 <<18);
@@ -314,7 +323,7 @@ int main(void){
 	GLCD_SetBackColor(White);
 	GLCD_SetTextColor(Navy);
 	updateLEDs(tank.ammo);
-
+	spawnEnemy(&head);
 	
 	for(x = 0; x < 48; x++)
 	{

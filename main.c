@@ -262,15 +262,15 @@ __task void moveTank(void)
 			button = (~LPC_GPIO1->FIOPIN);
 			//while((~LPC_GPIO1->FIOPIN & 0x07900000));
 			clearTank();
-				if(button & 0x04000000)
+				if((button & 0x04000000) && field[tank.xPos][(tank.yPos)+2] != Navy)
 					(tank.yPos)++; //down
-				if(button & 0x02000000)
+				if((button & 0x02000000) && field[(tank.xPos)+2][tank.yPos] != Navy)
 					(tank.xPos)++;	//right
-				if(button & 0x00800000)
+				if((button & 0x00800000) && field[(tank.xPos)-2][tank.yPos] != Navy)
 					(tank.xPos)--; //left
-				if(button & 0x01000000)
+				if((button & 0x01000000) && field[tank.xPos][(tank.yPos)-2] != Navy)
 					(tank.yPos)--; //up
-			
+				
 		}
 		drawTank();
 		os_tsk_pass();
@@ -282,20 +282,22 @@ void drawEnemies(void){
 }
 
 __task void moveEnemy(void){
+		int dir, xEnemy, yEnemy;
 	while(1){
-		int dir;
 		dir = (rand()%10)%4;
 		printf(" I'm soooo random! XD %d\n", (rand()%10)%4);
+		xEnemy = (head->data).xLoc;
+		yEnemy = (head->data).yLoc;
 		drawPixel( (head->data).xLoc, (head->data).yLoc, White);
-		os_dly_wait(10);
-		if (dir == up)
+		if (dir == up && field[xEnemy][yEnemy-1] != Navy)
 			((head->data).yLoc)--;
-		else if (dir == down)
+		else if (dir == down && field[xEnemy][yEnemy+1] != Navy)
 			((head->data).yLoc)++;
-		else if (dir == left)
+		else if (dir == left && field[xEnemy-1][yEnemy] != Navy)
 			((head->data).xLoc)--;
-		else if (dir == right)
+		else if (dir == right && field[xEnemy+1][yEnemy] != Navy)
 			((head->data).xLoc)++;
+		drawPixel(xEnemy, yEnemy, White);
 		drawEnemies();
 		os_dly_wait(10);
 		os_tsk_pass();

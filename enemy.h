@@ -9,8 +9,6 @@ typedef struct node{
 	struct node *next;
 } node_t;
 
-void spawnEnemy(node_t** );
-
-
+void spawnEnemy(uint32_t, uint32_t, node_t** );
 
 void deleteEnemy(uint8_t, node_t**);

@@ -2,14 +2,15 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-void spawnEnemy( node_t **L ){
+void spawnEnemy(uint32_t startX, uint32_t startY,node_t **L ){
 	//make a new enemy struct
 	enemy_t *newEnemy ;
 	node_t *newNode;
 	newEnemy =(enemy_t*) malloc(sizeof(enemy_t));
 	
-	newEnemy->xLoc = 20;
-	newEnemy->yLoc = 20;
+	//randomly generated numbers are passed in as the starting coordinate
+	newEnemy->xLoc = startX;
+	newEnemy->yLoc = startY;
 	newNode = (node_t*) malloc(sizeof(node_t));
 	newNode->data = *newEnemy;
 	//adds this enemy to the end of the linked list

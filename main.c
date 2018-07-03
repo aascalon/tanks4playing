@@ -277,24 +277,41 @@ __task void moveTank(void)
 	}
 }
 
-
+void drawEnemies(void){
+	drawPixel( (head->data).xLoc, (head->data).yLoc, Magenta);
+}
 
 __task void moveEnemy(void){
+	while(1){
+		int dir;
+		dir = (rand()%10)%4;
+		printf(" I'm soooo random! XD %d\n", (rand()%10)%4);
+		drawPixel( (head->data).xLoc, (head->data).yLoc, White);
+		os_dly_wait(10);
+		if (dir == up)
+			((head->data).yLoc)--;
+		else if (dir == down)
+			((head->data).yLoc)++;
+		else if (dir == left)
+			((head->data).xLoc)--;
+		else if (dir == right)
+			((head->data).xLoc)++;
+		drawEnemies();
+		os_dly_wait(10);
+		os_tsk_pass();
+	}
 }
-// __task void drawEnemies(void){
-// 	while(head != NULL){
-// 	drawPixel( (head->data).xLoc, (head->data).yLoc, Magenta);
-// 	}
-// }
+
 __task void start_tasks(void){
 	os_tsk_create(moveTank,1);
 	os_tsk_create(fire,1);
 	os_tsk_create(aimCannon,1);
-	//os_tsk_create(drawEnemies,1);
+	os_tsk_create(moveEnemy,1);
 	os_tsk_delete_self();
 }
 int main(void){
 	int i, j, x, y;
+	uint32_t soRandom = 2000000;
 	//initialise first member of linked list
 	
 	head = NULL;
@@ -314,8 +331,6 @@ int main(void){
 	tank.yPos = 5;
 	tank.aimDir = left;
 	tank.ammo = 8;
-	printf("UART begin\n");
-	printf("%d\n", rand());
 
 	GLCD_Init();
 	GLCD_Clear(White);
@@ -323,7 +338,7 @@ int main(void){
 	GLCD_SetBackColor(White);
 	GLCD_SetTextColor(Navy);
 	updateLEDs(tank.ammo);
-	spawnEnemy(&head);
+	
 	
 	for(x = 0; x < 48; x++)
 	{
@@ -343,6 +358,12 @@ int main(void){
 
 		}
 	}
+	printf("UART begin\n");
+	
+	while(LPC_GPIO1->FIOPIN & 0x00100000)
+		soRandom++;
+	srand(soRandom);
+	spawnEnemy(rand()%48, rand()%64,&head);
 	os_sys_init(start_tasks);
  
 }

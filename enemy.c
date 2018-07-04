@@ -18,11 +18,11 @@ void spawnEnemy(uint32_t startX, uint32_t startY,node_t **L ){
 		*L = newNode;
 	}
 	else{
-		node_t* last = (*L);
-		while(last->next != NULL){
-			last = last->next;
+		node_t* latest = (*L);
+		while(latest->next != NULL){
+			latest = latest->next;
 			}
-		last->next = newNode;
+		latest->next = newNode;
 	}
 }
 

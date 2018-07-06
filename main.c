@@ -5,6 +5,7 @@
 #include "GLCD.h"
 #include <stdlib.h>
 #include "enemy.h"
+#include <math.h>
 #define up    0
 #define right 1
 #define down  2
@@ -12,12 +13,15 @@
 
 //a mutex to make sure things don't get drawn at the same time
 OS_MUT drawlock;
+OS_MUT enemylock;
+OS_MUT enemyiskill;
+	node_t *enemyList;
 
 uint32_t moveDelay = 1000;
-
+const uint8_t ENEMY_MAX = 2;
 unsigned short field[48][64] = {White};
 uint8_t enemyQty = 0;
-node_t *enemyList;
+uint8_t fieldAmmo = 0;
 typedef struct{
 	int xPos, yPos ,ammo, aimDir;
 }  myTank;
@@ -39,6 +43,56 @@ void drawPixel(int x, int y, unsigned short colour){
 				GLCD_PutPixel( x*5+i, y*5+4);
 			}
 }
+
+
+void drawEnemies(uint8_t xLoc, uint8_t yLoc){
+	int i, j;
+	for (i = xLoc-1; i <= xLoc+1; i++){
+		for (j = yLoc-1; j <= yLoc+1; j++){
+			drawPixel( i, j, Magenta);
+			field[i][j] = Magenta;
+		}
+	}
+}
+
+void clearEnemies(uint8_t xLoc, uint8_t yLoc){
+	int i, j;
+	for (i = xLoc-1; i <= xLoc+1; i++){
+		for (j = yLoc-1; j <= yLoc+1; j++){
+			drawPixel( i, j, White);
+			field[i][j] = White;
+		}
+	}
+}
+
+int collisionFree(int x, int y, int dir){
+	//return 1 if no collision, 0 if collision
+	int i;
+	
+	if (dir == up){
+		for(i = x -1; i <= x +1; i++)
+			if(field[i][y-2] == (Navy) || field[i][y-2] == Magenta)
+				return 0;
+		}
+	else if (dir == down){
+		for(i = x -1; i <= x +1; i++)
+			if(field[i][y+2] == (Navy)  || field[i][y+2] == Magenta)
+				return 0;
+		}
+	else if (dir == left){
+		for(i = y -1; i <= y +1; i++)
+			if(field[x-2][i] == (Navy)  || field[x-2][i] == Magenta)
+				return 0;
+		}
+	else if (dir == right){
+		for(i = y -1; i <= y +1; i++)
+			if(field[x+2][i] == (Navy)  || field[x+2][i] == Magenta)
+				return 0;
+		}
+			
+	return 1;
+}
+
 
 void drawTank(void){
 	int8_t i,j, canX, canY;
@@ -118,40 +172,40 @@ void clearTank(void){
 	os_mut_release(&drawlock);
 
 }
-void newclearTank(int moveDir){
-	int i, j;
-	os_mut_wait(&drawlock,0xffff);
-	//clears 6 pixels on the side of the tank opposite to the direction of movement
-	if(moveDir == up){
-		for(i = (tank.xPos)-1; i <= (tank.xPos)+1; i++){
-			for(j = (tank.yPos)+1; j <= (tank.yPos)+2; j++){
-				drawPixel(i,j,White);
-			}
-		}
-	}
-	if(moveDir == right){
-		for(i = (tank.xPos)-2; i <= (tank.xPos)-1; i++){
-			for(j = (tank.yPos)-1; j <= (tank.yPos)+1; j++){
-				drawPixel(i,j,White);
-			}
-		}
-	}
-	if(moveDir == down){
-		for(i = (tank.xPos)-1; i <= (tank.xPos)+1; i++){
-			for(j = (tank.yPos)-2; j <= (tank.yPos)-1; j++){
-				drawPixel(i,j,White);
-			}
-		}
-	}
-	if(moveDir == left){
-		for(i = (tank.xPos)+1; i <= (tank.xPos)+2; i++){
-			for(j = (tank.yPos)-1; j <= (tank.yPos)+1; j++){
-				drawPixel(i,j,White);
-			}
-		}
-	}
-	os_mut_release(&drawlock);
-}
+// void newclearTank(int moveDir){
+// 	int i, j;
+// 	os_mut_wait(&drawlock,0xffff);
+// 	//clears 6 pixels on the side of the tank opposite to the direction of movement
+// 	if(moveDir == up){
+// 		for(i = (tank.xPos)-1; i <= (tank.xPos)+1; i++){
+// 			for(j = (tank.yPos)+1; j <= (tank.yPos)+2; j++){
+// 				drawPixel(i,j,White);
+// 			}
+// 		}
+// 	}
+// 	if(moveDir == right){
+// 		for(i = (tank.xPos)-2; i <= (tank.xPos)-1; i++){
+// 			for(j = (tank.yPos)-1; j <= (tank.yPos)+1; j++){
+// 				drawPixel(i,j,White);
+// 			}
+// 		}
+// 	}
+// 	if(moveDir == down){
+// 		for(i = (tank.xPos)-1; i <= (tank.xPos)+1; i++){
+// 			for(j = (tank.yPos)-2; j <= (tank.yPos)-1; j++){
+// 				drawPixel(i,j,White);
+// 			}
+// 		}
+// 	}
+// 	if(moveDir == left){
+// 		for(i = (tank.xPos)+1; i <= (tank.xPos)+2; i++){
+// 			for(j = (tank.yPos)-1; j <= (tank.yPos)+1; j++){
+// 				drawPixel(i,j,White);
+// 			}
+// 		}
+// 	}
+// 	os_mut_release(&drawlock);
+// }
 
 
 __task void aimCannon(void){
@@ -232,6 +286,42 @@ void updateLEDs(uint8_t ammoCount){
 	
 }
 
+void ammoPickup(int x, int y){
+	int i, j;
+	for(i = x - 1; i <= x +1; i++)
+		for(j = y - 1; j <= y + 1; j++)
+			if(field[i][j] == Maroon){
+				fieldAmmo--;
+				field[i][j] = White;
+				if(x == tank.xPos && y == tank.yPos){
+					tank.ammo++;
+					updateLEDs(tank.ammo);
+				}
+			}
+}
+
+//mutexes don't work on functions??? only tasks??
+
+void killEnemy(int x, int y){
+	uint8_t xEnemy, yEnemy;
+	node_t *curEnemy;
+	curEnemy = enemyList;
+		while(curEnemy != NULL){
+				//iterate through the enemy linked list and find the enemy that the laser hit
+			xEnemy = (curEnemy->data).xLoc;
+			yEnemy = (curEnemy->data).yLoc;
+			
+			if(abs(x - xEnemy) <= 1 && abs(y - yEnemy) <= 1){
+				deleteEnemy(xEnemy, yEnemy, &enemyList);
+				clearEnemies(xEnemy, yEnemy);
+				enemyQty--;
+			}
+			else curEnemy = curEnemy->next;
+		}
+		
+
+}
+
 //TODO IF SPARE TIME: look into interrupts
 __task void fire(void){
 	int cleanup, x, y, xdir, ydir;
@@ -257,13 +347,20 @@ __task void fire(void){
 					ydir = -1;
 				
 				y+=3*ydir;
-				while(field[x][y] != Navy)
+				while(field[x][y] != Navy && field[x][y] != Magenta)
 				{
 					drawPixel(x,y,Red);
 					y+= ydir;
 					os_dly_wait(1);
 				}
-				cleanup = (tank.yPos) + 3*ydir;
+				
+				if(field[x][y] == Magenta){
+					os_mut_wait(&enemylock,0xffff);
+					killEnemy(x,y);
+					os_mut_release(&enemylock);
+
+				}
+					cleanup = (tank.yPos) + 3*ydir;
 				
 				while((cleanup - y)*ydir*(-1) > 0){
 					drawPixel(x,cleanup, White);
@@ -278,12 +375,19 @@ __task void fire(void){
 					xdir = -1;
 				
 				x+=3*xdir;
-				while(field[x][y] != Navy)
+				while(field[x][y] != Navy && field[x][y] != Magenta)
 				{
 					drawPixel(x,y,Red);
 					x+= xdir;
 					os_dly_wait(1);
 				}
+				
+				if(field[x][y] == Magenta){
+					os_mut_wait(&enemylock,0xffff);
+					killEnemy(x,y);
+					os_mut_release(&enemylock);
+				}
+				
 				cleanup = (tank.xPos) + 3*xdir;
 				
 				while((cleanup - x)*xdir*(-1) > 0){
@@ -310,38 +414,22 @@ __task void moveTank(void)
 			button = (~LPC_GPIO1->FIOPIN);
 			//while((~LPC_GPIO1->FIOPIN & 0x07900000));
 			clearTank();
-				if((button & 0x04000000) && field[tank.xPos][(tank.yPos)+2] != Navy)
+				if((button & 0x04000000) && collisionFree(tank.xPos, tank.yPos, down))
 					(tank.yPos)++; //down
-				if((button & 0x02000000) && field[(tank.xPos)+2][tank.yPos] != Navy)
+				if((button & 0x02000000) && collisionFree(tank.xPos, tank.yPos, right))
 					(tank.xPos)++;	//right
-				if((button & 0x00800000) && field[(tank.xPos)-2][tank.yPos] != Navy)
+				if((button & 0x00800000) && collisionFree(tank.xPos, tank.yPos, left))
 					(tank.xPos)--; //left
-				if((button & 0x01000000) && field[tank.xPos][(tank.yPos)-2] != Navy)
+				if((button & 0x01000000) && collisionFree(tank.xPos, tank.yPos, up))
 					(tank.yPos)--; //up
 				
 		}
+		ammoPickup(tank.xPos, tank.yPos);
 		drawTank();
 		os_tsk_pass();
 	}
 }
 
-void drawEnemies(void){
-	int i, j;
-	for (i = (enemyList->data).xLoc-1; i <= (enemyList->data).xLoc+1; i++){
-		for (j = (enemyList->data).yLoc-1; j <=(enemyList->data).yLoc+1; j++){
-			drawPixel( i, j, Magenta);
-		}
-	}
-}
-
-void clearEnemies(uint8_t xLoc, uint8_t yLoc){
-	int i, j;
-	for (i = xLoc-1; i <= xLoc+1; i++){
-		for (j = yLoc-1; j <= yLoc+1; j++){
-			drawPixel( i, j, White);
-		}
-	}
-}
 
 __task void moveEnemy(void){
 		int dir, xEnemy, yEnemy;
@@ -349,45 +437,111 @@ __task void moveEnemy(void){
 		while(1){
 			node_t *curEnemy;
 			curEnemy = enemyList;
+			//printf("start of moveEnemy\n");
+
 			os_itv_wait();
+
 			while(curEnemy != NULL){
 				//iterate through the enemy linked list and move them someplace
-				dir = (rand()%10)%4;
-				xEnemy = (enemyList->data).xLoc;
-				yEnemy = (enemyList->data).yLoc;
-				drawPixel( (enemyList->data).xLoc, (enemyList->data).yLoc, White);
-				if (dir == up && field[xEnemy][yEnemy-2] != Navy)
-					((enemyList->data).yLoc)--;
-				else if (dir == down && field[xEnemy][yEnemy+2] != Navy)
-					((enemyList->data).yLoc)++;
-				else if (dir == left && field[xEnemy-2][yEnemy] != Navy)
-					((enemyList->data).xLoc)--;
-				else if (dir == right && field[xEnemy+2][yEnemy] != Navy)
-					((enemyList->data).xLoc)++;
+				
+				//the problem happens if you delete the head during the loop3
 			
 				os_mut_wait(&drawlock,0xffff);
-				clearEnemies(xEnemy, yEnemy);
-				drawEnemies();
-				os_mut_release(&drawlock);
-				
-			}
+				os_mut_wait(&enemylock,0xffff);
 			
+				//printf("current  loc (%d,%d)\n", (curEnemy->data).xLoc,(curEnemy->data).yLoc);
+				
+				
+			
+				
+				if(((curEnemy->data).xLoc != 0)&& ((curEnemy->data).yLoc != 0)){
+					dir = (rand()%10)%4;
+					xEnemy = (curEnemy->data).xLoc;
+					yEnemy = (curEnemy->data).yLoc;
+					if ((dir == up) && collisionFree(xEnemy, yEnemy, dir))
+						((curEnemy->data).yLoc)--;
+					else if ((dir == down) && collisionFree(xEnemy, yEnemy, dir))
+						((curEnemy->data).yLoc)++;
+					else if ((dir == left) && collisionFree(xEnemy, yEnemy, dir))
+						((curEnemy->data).xLoc)--;
+					else if ((dir == right) && collisionFree(xEnemy, yEnemy, dir))
+						((curEnemy->data).xLoc)++;
+				
+					ammoPickup((curEnemy->data).xLoc,(curEnemy->data).yLoc);
+					clearEnemies(xEnemy, yEnemy);
+					drawEnemies((curEnemy->data).xLoc,(curEnemy->data).yLoc);
+					}
+				curEnemy = curEnemy->next;
+				os_mut_release(&enemylock);
+				os_mut_release(&drawlock);
+				//printf("made it to the end\n");
+
+			}
+
 			os_tsk_pass();
 	}
 }
 
+__task void spawnNew(void){
+	int ammoX, ammoY, enemyX, enemyY;
+	os_itv_set(500);
+	while(1){
+		os_itv_wait();
+		if (enemyQty < ENEMY_MAX){
+			
+				enemyX = rand()%48;
+				enemyY = rand()%64;
+			while(field[enemyX][enemyY] != White)
+			{
+				enemyX = rand()%48;
+				enemyY = rand()%64;
+			}			    
+			os_mut_wait(&enemylock,0xffff);
+
+			spawnEnemy(enemyX, enemyY,&enemyList);
+			os_mut_release(&enemylock);
+
+			enemyQty++;
+			os_tsk_pass(); //should this be out of the if statement?
+		}
+		
+		if ((8 - (tank.ammo + fieldAmmo)) > 0){
+
+			ammoX = rand()%48;
+			ammoY = rand()%64;
+			os_mut_wait(&drawlock,0xffff);
+			while(field[ammoX][ammoY] != White)
+			{
+				ammoX = rand()%48;
+				ammoY = rand()%64;
+			}
+			fieldAmmo++;
+			drawPixel(ammoX, ammoY, Maroon);
+			field[ammoX][ammoY] = Maroon;
+			os_mut_release(&drawlock);
+			os_tsk_pass();	
+		}
+	}
+}
+
+
+
 __task void start_tasks(void){
 	os_mut_init(&drawlock);
+	os_mut_init(&enemylock);
+
 	
 	os_tsk_create(moveTank,1);
 	os_tsk_create(fire,1);
 	os_tsk_create(aimCannon,1);
 	os_tsk_create(moveEnemy,1);
+	os_tsk_create(spawnNew,1);
+// 	os_tsk_create(spawnAmmo,1);
 	os_tsk_delete_self();
 }
 int main(void){
 	int i, j, x, y;
-	
+
 	uint32_t soRandom = 2000000;
 	//initialise first member of linked list containing all the enemies
 	enemyList = NULL;
@@ -414,34 +568,61 @@ int main(void){
 	GLCD_SetBackColor(White);
 	GLCD_SetTextColor(Navy);
 	updateLEDs(tank.ammo);
-	
-	
+	// field set up
 	for(x = 0; x < 48; x++)
 	{
 		for(y = 0; y < 64; y++)
 		{
 			field[x][y] = White;
-			drawPixel(x,y,field[x][y]);
 		}
 	}
-	for (i = 0; i < 48; i ++){
+	for (i = 0; i < 48; i++){
 		for(j = 0; j < 64; j++){
 			field[i][0] = Navy;
 			field[0][j] = Navy;
 			field[i][63] = Navy;
 			field[47][j] = Navy;
-			drawPixel(i,j,field[i][j]);
-
 		}
 	}
+	for(x = 1; x < 35; x++)
+	{	
+		if(x < 9)
+			field[x][29] = Navy;
+		if(x > 10)
+			field[x][10] = Navy;
+		if(x > 23 && x < 33)
+			field[x][41] = Navy;
+		if(x > 20 && x < 33)
+			field[x][52] = Navy;
+	}
+	for(y = 1; y < 64; y++)
+	{
+		if(y < 11)
+			field[10][y] = Navy;
+		if(y > 6 && y < 15)
+			field[35][y] = Navy;
+		if(y > 33 && y < 42)
+			field[23][y] = Navy;
+		if(y > 40 && y < 53)
+			field[33][y] = Navy;
+		if(y > 51)
+			field[20][y] = Navy;
+	}
+	for (x = 0; x < 48; x++){
+		for(y = 0; y < 64; y++){
+			drawPixel(x,y,field[x][y]);
+		}
+	}
+	//end field set up (let's make this a function)
+	
 	printf("UART begin\n");
 	
 	while(LPC_GPIO1->FIOPIN & 0x00100000)
 		soRandom++;
 	srand(soRandom);
-	spawnEnemy(rand()%48, rand()%64,&enemyList);
-	//spawnEnemy(rand()%48, rand()%64,&enemyList);
 
+
+	//printf("is there another enemy? (%d, %d)\n " ,(enemyList->next->data).xLoc, (enemyList->next->data).yLoc);
 	os_sys_init(start_tasks);
  
 }

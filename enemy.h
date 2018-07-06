@@ -11,4 +11,4 @@ typedef struct node{
 
 void spawnEnemy(uint32_t, uint32_t, node_t** );
 
-void deleteEnemy(uint8_t, node_t**);
+void deleteEnemy(int x, int y, node_t **head);

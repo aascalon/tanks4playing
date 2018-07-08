@@ -33,7 +33,7 @@ void deleteEnemy(int x, int y, node_t **head){
 	if(temp != NULL && abs(temp->data.xLoc - x) <= 1 && abs(temp->data.yLoc - y) <= 1){
 		*head = temp->next;
 		free(temp);
-		printf("deleted head\n");
+	//	printf("deleted head\n");
 		return;
 	}
 

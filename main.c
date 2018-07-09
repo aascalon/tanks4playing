@@ -13,15 +13,18 @@
 
 //a mutex to make sure things don't get drawn at the same time
 OS_MUT drawlock;
+//a mutex to protect the linked list of enemies
 OS_MUT enemylock;
 OS_MUT enemyiskill;
 	node_t *enemyList;
 
 uint32_t moveDelay = 1000;
-const uint8_t ENEMY_MAX = 5;
-unsigned short field[48][64] = {White};
-uint8_t enemyQty = 0;
-uint8_t fieldAmmo = 0;
+const uint8_t ENEMY_MAX = 5; //the maximum number of enemies allowed to be active at once
+unsigned short field[48][64] = {White}; // a 2d array representing the game field, keeps track of walls, ammo, and enemy locations
+uint8_t enemyQty = 0; //current number of active enemies
+uint8_t fieldAmmo = 0; //number of ammo packets currently on the ground
+
+//struct to store tank data
 typedef struct{
 	int xPos, yPos ,ammo, aimDir;
 }  myTank;
@@ -30,7 +33,7 @@ myTank tank ;
 
 
 
-
+//we divided the display into 5x5 pixel segments, so every time we draw a pixel we are actually setting the colour and drawing 25 pixels
 void drawPixel(int x, int y, unsigned short colour){
 	int i;
 	GLCD_SetTextColor(colour);
@@ -44,7 +47,7 @@ void drawPixel(int x, int y, unsigned short colour){
 			}
 }
 
-
+//function to draw a 3x3 block in Magenta and store it in the field array given an enemy position
 void drawEnemies(uint8_t xLoc, uint8_t yLoc){
 	int i, j;
 	for (i = xLoc-1; i <= xLoc+1; i++){
@@ -54,7 +57,7 @@ void drawEnemies(uint8_t xLoc, uint8_t yLoc){
 		}
 	}
 }
-
+//function to clear an enemy from the screen and the field array given an enemy position
 void clearEnemies(uint8_t xLoc, uint8_t yLoc){
 	int i, j;
 	for (i = xLoc-1; i <= xLoc+1; i++){
@@ -65,6 +68,7 @@ void clearEnemies(uint8_t xLoc, uint8_t yLoc){
 	}
 }
 
+//function that checks if moving from a given position in a given direction would result in a collision with a wall or an enemy
 int collisionFree(int x, int y, int dir){
 	//return 1 if no collision, 0 if collision
 	int i;
@@ -93,7 +97,9 @@ int collisionFree(int x, int y, int dir){
 	return 1;
 }
 
+//function to check if spawning an enemy in a given position would overlap with walls
 int wallFreeSpawn(uint8_t xLoc, uint8_t yLoc){
+	//return 1 if no overlap, 0 if it would conflict with a wall
 	int i, j;
 	for (i = xLoc-1; i <= xLoc+1; i++){
 		for (j = yLoc-1; j <= yLoc+1; j++){
@@ -104,7 +110,7 @@ int wallFreeSpawn(uint8_t xLoc, uint8_t yLoc){
 	return 1;
 }
 
-
+//a function that draws the tank in its current position with the cannon aimed in the correct direction
 void drawTank(void){
 	int8_t i,j, canX, canY;
 	os_mut_wait(&drawlock,0xffff);
@@ -147,6 +153,8 @@ void drawTank(void){
 	os_mut_release(&drawlock);
 	
 }
+
+//a function to clear the tank from the LCD display according to its current position and cannon direction
 void clearTank(void){
 	os_mut_wait(&drawlock,0xffff);
 	drawPixel((tank.xPos)-1, (tank.yPos)-1, White);
@@ -184,8 +192,7 @@ void clearTank(void){
 
 }
 
-
-
+//a task that updates the direction of the cannon based on the value of the potentiometer
 __task void aimCannon(void){
 	while(1){
 		uint16_t num = 0;
@@ -219,6 +226,8 @@ __task void aimCannon(void){
 		os_tsk_pass();
 	}
 }
+
+//a function that updates the LEDs to display the ammo currently held by the tank
 void updateLEDs(uint8_t ammoCount){
 	uint32_t i;
 	uint32_t mask = 1;
@@ -264,13 +273,17 @@ void updateLEDs(uint8_t ammoCount){
 	
 }
 
+//if ammo is on the field where an entity is located, remove the ammo
+//enemies will destroy the ammo, tank will pick it up to increase current ammo
 void ammoPickup(int x, int y){
 	int i, j;
 	for(i = x - 1; i <= x +1; i++)
 		for(j = y - 1; j <= y + 1; j++)
 			if(field[i][j] == Maroon){
+				//if ammo is in the location, clear it from the screen
 				fieldAmmo--;
 				field[i][j] = White;
+				//if the entity touching the ammo is the tank, increase the amount of ammo it is holding and update the LEDs
 				if(x == tank.xPos && y == tank.yPos){
 					tank.ammo++;
 					updateLEDs(tank.ammo);
@@ -278,7 +291,7 @@ void ammoPickup(int x, int y){
 			}
 }
 
-
+//given a location of a hit, find the enemy in the list, remove it from active enemies and clear it from the screen
 void killEnemy(int x, int y){
 	uint8_t xEnemy, yEnemy;
 	node_t *curEnemy;
@@ -288,8 +301,9 @@ void killEnemy(int x, int y){
 
 			xEnemy = (curEnemy->data).xLoc;
 			yEnemy = (curEnemy->data).yLoc;
-			
+			//since the enemies location is the center of the 3x3 square it occupies, check if position is within 1 unit
 			if(abs(x - xEnemy) <= 1 && abs(y - yEnemy) <= 1){
+				//delete the enemy from the linked list, clear it from the screen, and decrease active enemy qty
 				deleteEnemy(xEnemy, yEnemy, &enemyList);
 				clearEnemies(xEnemy, yEnemy);
 				enemyQty--;
@@ -312,13 +326,13 @@ __task void fire(void){
 		os_mut_wait(&drawlock,0xffff);
 		//check if button is pushed AND the tank has enough ammo
 		if( (~LPC_GPIO2->FIOPIN & (1<<10)) && (tank.ammo) > 0 ){
+			//wait for button to be released so it only fires once
 			while(~LPC_GPIO2->FIOPIN & ( 1 << 10 ) )
 			{}
 			//update ammo count on LEDs
 			(tank.ammo)--;
 			updateLEDs(tank.ammo);
 			//if the direction is up or down we are firing in y
-			
 			if(tank.aimDir == up || tank.aimDir == down)
 			{
 				//if the direction is up we fire in the negative y direction
@@ -326,13 +340,14 @@ __task void fire(void){
 					ydir = -1;
 				
 				y+=3*ydir;
+				//draw a line of red until we hit a wall or an enemy
 				while(field[x][y] != Navy && field[x][y] != Magenta)
 				{
 					drawPixel(x,y,Red);
 					y+= ydir;
 					os_dly_wait(1);
 				}
-				
+				//if we stopped because we hit an enemy, kill it
 				if(field[x][y] == Magenta){
 					os_mut_wait(&enemylock,0xffff);
 					killEnemy(x,y);
@@ -340,7 +355,7 @@ __task void fire(void){
 
 				}
 					cleanup = (tank.yPos) + 3*ydir;
-				
+				//erase the laser line from the tank up to the thing that it hit
 				while((cleanup - y)*ydir*(-1) > 0){
 					drawPixel(x,cleanup, White);
 					os_dly_wait(1);
@@ -354,13 +369,14 @@ __task void fire(void){
 					xdir = -1;
 				
 				x+=3*xdir;
+				//draw a line of red until we hit a wall or an enemy
 				while(field[x][y] != Navy && field[x][y] != Magenta)
 				{
 					drawPixel(x,y,Red);
 					x+= xdir;
 					os_dly_wait(1);
 				}
-				
+				//if we stopped because we hit an enemy, kill it
 				if(field[x][y] == Magenta){
 					os_mut_wait(&enemylock,0xffff);
 					killEnemy(x,y);
@@ -368,7 +384,7 @@ __task void fire(void){
 				}
 				
 				cleanup = (tank.xPos) + 3*xdir;
-				
+				//erase the laser line from the tank up to the thing it hit
 				while((cleanup - x)*xdir*(-1) > 0){
 					drawPixel(cleanup,y, White);
 					os_dly_wait(1);
@@ -377,23 +393,24 @@ __task void fire(void){
 			}
 			
 			
-		}		
+		}
+		//done drawing
 		os_mut_release(&drawlock);
 		os_tsk_pass();	
 	}
 
 }
 
-
-
-
+//use joystick input to move the tank
 __task void moveTank(void)
 {
 	while(1){
 		int button;
 		if((~LPC_GPIO1->FIOPIN & 0x07900000)){
 			button = (~LPC_GPIO1->FIOPIN);
+			//erase the tank from its current location
 			clearTank();
+			//update the position of the tank as long as it won't collide with anything
 				if((button & 0x04000000) && collisionFree(tank.xPos, tank.yPos, down))
 					(tank.yPos)++; //down
 				if((button & 0x02000000) && collisionFree(tank.xPos, tank.yPos, right))
@@ -402,16 +419,15 @@ __task void moveTank(void)
 					(tank.xPos)--; //left
 				if((button & 0x01000000) && collisionFree(tank.xPos, tank.yPos, up))
 					(tank.yPos)--; //up
-				
-		//	printf("tank location change\n");
 		}
+		//check if the tank needs to pick up any ammo then redraw it in its new position
 		ammoPickup(tank.xPos, tank.yPos);
 		drawTank();
 		os_tsk_pass();
 	}
 }
 
-
+//a task to loop through the linked list of enemies and move each of them in a random direction
 __task void moveEnemy(void){
 		int dir, xEnemy, yEnemy;
 		os_itv_set(30);
@@ -420,23 +436,21 @@ __task void moveEnemy(void){
 			os_itv_wait();
 			
 			//os_mut_wait(&enemylock,0xffff);
-			//printf("bout to loop through dis fucka %d enemies total\n", enemyQty);
+			//critical: acquire the draw lock first or else we can encounter deadlock because fire and moveEnemy
+			//both use both the draw and enemy mutexes
 			os_mut_wait(&drawlock,0xffff);
 			os_mut_wait(&enemylock,0xffff);
 			curEnemy = enemyList;
 
 			while(curEnemy != NULL){
 				//iterate through the enemy linked list and move them someplace
-				
-				//the problem happens if you delete the head during the loop3
-				
-			
-			
 
 				if(((curEnemy->data).xLoc != 0)&& ((curEnemy->data).yLoc != 0)){
-					dir = (rand()%10)%4;
+					//choose a random direction to move
+					dir = (rand()%16)%4;
 					xEnemy = (curEnemy->data).xLoc;
 					yEnemy = (curEnemy->data).yLoc;
+					//if moving won't cause a collision, update the enemy position
 					if ((dir == up) && collisionFree(xEnemy, yEnemy, dir))
 						((curEnemy->data).yLoc)--;
 					else if ((dir == down) && collisionFree(xEnemy, yEnemy, dir))
@@ -445,7 +459,7 @@ __task void moveEnemy(void){
 						((curEnemy->data).xLoc)--;
 					else if ((dir == right) && collisionFree(xEnemy, yEnemy, dir))
 						((curEnemy->data).xLoc)++;
-
+					//check if the enemy destroys any ammo, then clear it and redraw it in its new position
 					ammoPickup((curEnemy->data).xLoc,(curEnemy->data).yLoc);
 					clearEnemies(xEnemy, yEnemy);
 					drawEnemies((curEnemy->data).xLoc,(curEnemy->data).yLoc);
@@ -465,32 +479,35 @@ __task void spawnNew(void){
 	os_itv_set(1);
 	while(1){
 		os_itv_wait();
+		//if there are less active enemies than the max, spawn a new one
 		if (enemyQty < ENEMY_MAX){
-			
 				enemyX = rand()%44 + 2;
 				enemyY = rand()%60 + 2;
+			//keep generating a random position until it will not conflict with any walls
 			while(!(wallFreeSpawn(enemyX, enemyY))){
 				enemyX = rand()%44 + 2;
 				enemyY = rand()%60 + 2;
 			}
+			//wait for access to the enemies list then add to it and increase active enemies qty
 			os_mut_wait(&enemylock,0xffff);
-
 			spawnEnemy(enemyX, enemyY,&enemyList);
 			enemyQty++;
 			os_mut_release(&enemylock);
 
 			}
-		
+		//if there is less than 8 ammo accounted for between what is held by the tank and active on the screen, spawn ammo
 		if ((8 - (tank.ammo + fieldAmmo)) > 0){
 
-			ammoX = rand()%46 + 1;
-			ammoY = rand()%62 + 1;
+			ammoX = rand()%44 + 2;
+			ammoY = rand()%60 + 2;
 			os_mut_wait(&drawlock,0xffff);
+			//generate random positions until it does not conflict with walls
 			while(field[ammoX][ammoY] != White)
 			{
 				ammoX = rand()%46 + 1;
 				ammoY = rand()%62 + 1;
 			}
+			//increase the number of ammo packs on the field, draw the ammo, and add it to the field array
 			fieldAmmo++;
 			drawPixel(ammoX, ammoY, Maroon);
 			field[ammoX][ammoY] = Maroon;
@@ -515,7 +532,6 @@ __task void start_tasks(void){
 	os_tsk_create(aimCannon,1);
 	os_tsk_create(moveEnemy,1);
 	os_tsk_create(spawnNew,1);
-// 	os_tsk_create(spawnAmmo,1);
 	os_tsk_delete_self();
 }
 int main(void){

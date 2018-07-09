@@ -15,15 +15,18 @@
 OS_MUT drawlock;
 //a mutex to protect the linked list of enemies
 OS_MUT enemylock;
-OS_MUT enemyiskill;
-	node_t *enemyList;
+//a pointer to the linked list of enemies
+node_t *enemyList;
+//an integer containing the score
+int score = 0;
+//a string buffer in order the print the player's score at the end
+char scoreBuff[25];
 
-uint32_t moveDelay = 1000;
-const uint8_t ENEMY_MAX = 5; //the maximum number of enemies allowed to be active at once
+const uint8_t ENEMY_MAX = 8; //the maximum number of enemies allowed to be active at once
 unsigned short field[48][64] = {White}; // a 2d array representing the game field, keeps track of walls, ammo, and enemy locations
 uint8_t enemyQty = 0; //current number of active enemies
 uint8_t fieldAmmo = 0; //number of ammo packets currently on the ground
-
+uint8_t ded = 0; //a "boolean" that 
 //struct to store tank data
 typedef struct{
 	int xPos, yPos ,ammo, aimDir;
@@ -115,6 +118,7 @@ void drawTank(void){
 	int8_t i,j, canX, canY;
 	os_mut_wait(&drawlock,0xffff);
 	drawPixel(tank.xPos, tank.yPos, Black);
+	//draws the different tank cannon angles
 	if(tank.aimDir == up){
 		canX = 0;
 		canY = -1;
@@ -127,11 +131,11 @@ void drawTank(void){
 		canX = 0;
 		canY = 1;
 		}
-	else{
-		//left
+	else if(tank.aimDir == left){
 		canX = -1;
 		canY = 0;
 	}
+	//draws the body of the tank
 	for (i = (tank.xPos)-1; i <= tank.xPos+1; i++){
 		for (j = (tank.yPos)-1; j <=(tank.yPos)+1; j++){
 			//draw the pixel in the centre of the tank black
@@ -197,11 +201,28 @@ __task void aimCannon(void){
 	while(1){
 		uint16_t num = 0;
 		uint8_t oldDir, newDir;
+		
+		//checks if the tank has been hit
+		if(ded){
+			//displays the game over screen
+			GLCD_Clear(Black);
+			GLCD_SetBackColor(Black);
+			GLCD_SetTextColor(White);
+			GLCD_DisplayString(4,1,1,"Game Over");
+			sprintf(scoreBuff, "Score: %d ", score);
+			GLCD_DisplayString(5,1,1, scoreBuff);
+			os_tsk_delete_self();
+		}
+		
 		LPC_ADC->ADCR |= 0x01000000 ; //start a conversion
 		while ( !(LPC_ADC->ADGDR & 0x80000000) ) 
 		{}
+		//stores where the tank is currently pointing
 		oldDir = tank.aimDir;
+			
+		//stores the value of the ADC
 		num = ((LPC_ADC->ADGDR & 0xFFF0) >> 4);
+			
 		// aim up
 		if ( ( num < 512) || (num >= 2048 && num < 2560))
 		newDir = up;
@@ -217,6 +238,7 @@ __task void aimCannon(void){
 		else if ( (num >= 1536 && num < 2048))
 		newDir = right;
 		
+		//if the direction changed, then redraw it
 		if(newDir != oldDir){
 			clearTank();
 			tank.aimDir = newDir;
@@ -234,13 +256,15 @@ void updateLEDs(uint8_t ammoCount){
 	uint32_t digit = 0;
 	uint32_t output = 0;
 	uint32_t gpio1, gpio2;
+	
+	//maps the ammoCount int so that 8 = 1111 111, 7 = 0111 111, etc so that they can be displayed on the LEDs
 	ammoCount = (1 << (ammoCount))-1;
 	
 	//clear all LEDs so that they can be set anew
-	
 	LPC_GPIO1->FIOCLR |=  0xB0000000 ;
 	LPC_GPIO2->FIOCLR |=  0x0000007C ;
 	
+	//produces a 32 bit integer 
 	for (i= 0; i < 8; i++)
 	
 	{
@@ -265,9 +289,10 @@ void updateLEDs(uint8_t ammoCount){
 		digit = 0;
 	}
 
+	//masks the number 
 	gpio1 = (output & 0xB0000000);
 	gpio2 = (output & 0x0000007C) ;
-
+	//puts it into the registers
 	LPC_GPIO1->FIOSET = gpio1;
 	LPC_GPIO2->FIOSET = gpio2;
 	
@@ -307,6 +332,7 @@ void killEnemy(int x, int y){
 				deleteEnemy(xEnemy, yEnemy, &enemyList);
 				clearEnemies(xEnemy, yEnemy);
 				enemyQty--;
+				score++;
 				break;
 			}
 			curEnemy = curEnemy->next;
@@ -315,10 +341,20 @@ void killEnemy(int x, int y){
 
 }
 
-//TODO IF SPARE TIME: look into interrupts
 __task void fire(void){
 	int cleanup, x, y, xdir, ydir;
 	while(1){
+		
+		if(ded){
+			GLCD_Clear(Black);
+			GLCD_SetBackColor(Black);
+			GLCD_SetTextColor(White);
+			GLCD_DisplayString(4,1,1,"Game Over");
+			sprintf(scoreBuff, "Score: %d ", score);
+			GLCD_DisplayString(5,1,1, scoreBuff);
+			os_tsk_delete_self();
+		}
+		
 		x = tank.xPos;
 		y = tank.yPos;
 		ydir = 1;
@@ -356,7 +392,12 @@ __task void fire(void){
 				}
 					cleanup = (tank.yPos) + 3*ydir;
 				//erase the laser line from the tank up to the thing that it hit
+				//remove any ammo destroyed by the laser
 				while((cleanup - y)*ydir*(-1) > 0){
+					if(field[x][cleanup] == Maroon){
+						field[x][cleanup] = White;
+						fieldAmmo--;
+					}
 					drawPixel(x,cleanup, White);
 					os_dly_wait(1);
 					cleanup += ydir;
@@ -385,7 +426,12 @@ __task void fire(void){
 				
 				cleanup = (tank.xPos) + 3*xdir;
 				//erase the laser line from the tank up to the thing it hit
+				//remove any ammo destroyed by the laser
 				while((cleanup - x)*xdir*(-1) > 0){
+					if(field[cleanup][y] == Maroon){
+						field[cleanup][y] = White;
+						fieldAmmo--;
+					}
 					drawPixel(cleanup,y, White);
 					os_dly_wait(1);
 					cleanup += xdir;
@@ -405,20 +451,59 @@ __task void fire(void){
 __task void moveTank(void)
 {
 	while(1){
-		int button;
+		int button, pos;
+		
+		if(ded){
+			GLCD_Clear(Black);
+			GLCD_SetBackColor(Black);
+			GLCD_SetTextColor(White);
+			GLCD_DisplayString(4,1,1,"Game Over");
+			sprintf(scoreBuff, "Score: %d ", score);
+			GLCD_DisplayString(5,1,1, scoreBuff);
+			os_tsk_delete_self();
+		}
+		
 		if((~LPC_GPIO1->FIOPIN & 0x07900000)){
 			button = (~LPC_GPIO1->FIOPIN);
 			//erase the tank from its current location
 			clearTank();
 			//update the position of the tank as long as it won't collide with anything
-				if((button & 0x04000000) && collisionFree(tank.xPos, tank.yPos, down))
+				if((button & 0x04000000) && collisionFree(tank.xPos, tank.yPos, down)){
 					(tank.yPos)++; //down
-				if((button & 0x02000000) && collisionFree(tank.xPos, tank.yPos, right))
+					for(pos = tank.xPos - 1; pos < tank.xPos + 1; pos++){
+						if(field[pos][tank.yPos + 1] == Magenta){
+							ded = 1;
+							break;
+						}
+					}
+				}
+				if((button & 0x02000000) && collisionFree(tank.xPos, tank.yPos, right)){
 					(tank.xPos)++;	//right
-				if((button & 0x00800000) && collisionFree(tank.xPos, tank.yPos, left))
+					for(pos = tank.yPos - 1; pos < tank.yPos + 1; pos++){
+						if(field[tank.xPos + 1][pos] == Magenta){
+							ded = 1;
+							break;
+						}
+					}
+				}
+				if((button & 0x00800000) && collisionFree(tank.xPos, tank.yPos, left)){
 					(tank.xPos)--; //left
-				if((button & 0x01000000) && collisionFree(tank.xPos, tank.yPos, up))
+					for(pos = tank.yPos - 1; pos < tank.yPos + 1; pos++){
+						if(field[tank.xPos - 1][pos] == Magenta){
+							ded = 1;
+							break;
+						}
+					}
+				}
+				if((button & 0x01000000) && collisionFree(tank.xPos, tank.yPos, up)){
 					(tank.yPos)--; //up
+					for(pos = tank.xPos - 1; pos < tank.xPos + 1; pos++){
+						if(field[pos][tank.yPos - 1] == Magenta){
+							ded = 1;
+							break;
+						}
+					}
+				}
 		}
 		//check if the tank needs to pick up any ammo then redraw it in its new position
 		ammoPickup(tank.xPos, tank.yPos);
@@ -433,6 +518,17 @@ __task void moveEnemy(void){
 		os_itv_set(30);
 		while(1){
 			node_t *curEnemy;
+			
+			if(ded){
+			GLCD_Clear(Black);
+			GLCD_SetBackColor(Black);
+			GLCD_SetTextColor(White);
+			GLCD_DisplayString(4,1,1,"Game Over");
+			sprintf(scoreBuff, "Score: %d ", score);
+			GLCD_DisplayString(5,1,1, scoreBuff);
+			os_tsk_delete_self();
+		}
+		
 			os_itv_wait();
 			
 			//os_mut_wait(&enemylock,0xffff);
@@ -447,25 +543,48 @@ __task void moveEnemy(void){
 
 				if(((curEnemy->data).xLoc != 0)&& ((curEnemy->data).yLoc != 0)){
 					//choose a random direction to move
-					dir = (rand()%16)%4;
+					dir = (rand()%21)%4;
+					//current coordinates of the enemy
 					xEnemy = (curEnemy->data).xLoc;
 					yEnemy = (curEnemy->data).yLoc;
+					
 					//if moving won't cause a collision, update the enemy position
-					if ((dir == up) && collisionFree(xEnemy, yEnemy, dir))
+					if ((dir == up) && collisionFree(xEnemy, yEnemy, dir)){
 						((curEnemy->data).yLoc)--;
-					else if ((dir == down) && collisionFree(xEnemy, yEnemy, dir))
+						if(abs(tank.xPos - xEnemy) <=3 && abs(tank.yPos - (yEnemy-1)) <= 3){
+							ded = 1;
+							break;
+						}
+					}
+					else if ((dir == down) && collisionFree(xEnemy, yEnemy, dir)){
 						((curEnemy->data).yLoc)++;
-					else if ((dir == left) && collisionFree(xEnemy, yEnemy, dir))
+						if(abs(tank.xPos - xEnemy) <=3 && abs(tank.yPos - (yEnemy+1)) <= 3){
+							ded = 1;
+							break;
+						}
+					}
+					else if ((dir == left) && collisionFree(xEnemy, yEnemy, dir)){
 						((curEnemy->data).xLoc)--;
-					else if ((dir == right) && collisionFree(xEnemy, yEnemy, dir))
+						if(abs(tank.xPos - (xEnemy-1)) <=3 && abs(tank.yPos - yEnemy) <= 3){
+							ded = 1;
+							break;
+						}
+					}
+					else if ((dir == right) && collisionFree(xEnemy, yEnemy, dir)){
 						((curEnemy->data).xLoc)++;
+						if(abs(tank.xPos - (xEnemy+1)) <=3 && abs(tank.yPos - yEnemy) <= 3){
+							ded = 1;
+							break;
+						}
+					}
 					//check if the enemy destroys any ammo, then clear it and redraw it in its new position
 					ammoPickup((curEnemy->data).xLoc,(curEnemy->data).yLoc);
+					//clears the enemy then redraws them in the new position
 					clearEnemies(xEnemy, yEnemy);
 					drawEnemies((curEnemy->data).xLoc,(curEnemy->data).yLoc);
 					}
 					
-				
+				//moves onto the next enemy in the linked list
 				curEnemy = curEnemy->next;
 			}
 			os_mut_release(&enemylock);
@@ -476,10 +595,21 @@ __task void moveEnemy(void){
 
 __task void spawnNew(void){
 	int ammoX, ammoY, enemyX, enemyY;
-	os_itv_set(1);
+	os_itv_set(500);
 	while(1){
+		
+		if(ded){
+			GLCD_Clear(Black);
+			GLCD_SetBackColor(Black);
+			GLCD_SetTextColor(White);
+			GLCD_DisplayString(4,1,1,"Game Over");
+			sprintf(scoreBuff, "Score: %d ", score);
+			GLCD_DisplayString(5,1,1, scoreBuff);
+			os_tsk_delete_self();
+		}
+		
 		os_itv_wait();
-		//if there are less active enemies than the max, spawn a new one
+		//if there are fewer active enemies than the max, spawn a new one
 		if (enemyQty < ENEMY_MAX){
 				enemyX = rand()%44 + 2;
 				enemyY = rand()%60 + 2;
@@ -536,7 +666,8 @@ __task void start_tasks(void){
 }
 int main(void){
 	int i, j, x, y;
-
+	
+	//initialises a value for the seed counter
 	uint32_t soRandom = 2000000;
 	//initialise first member of linked list containing all the enemies
 	enemyList = NULL;
@@ -550,8 +681,7 @@ int main(void){
 	LPC_GPIO1->FIODIR |=0xB0000000;
 	LPC_GPIO2->FIODIR |=0x0000007C;
 
-	
-	
+	//tank starting position
 	tank.xPos = 5;
 	tank.yPos = 5;
 	tank.aimDir = left;
@@ -559,21 +689,23 @@ int main(void){
 
 	GLCD_Init();
 	GLCD_SetBackColor(White);
-	GLCD_SetTextColor(Black);  
+	GLCD_SetTextColor(Black);
+	GLCD_Clear(White);  
 
+	//increments the seed counter until the joystick is pressed
 	while(LPC_GPIO1->FIOPIN & 0x00100000){
 		soRandom++;
 		GLCD_DisplayString(3,1,1,"Press joystick");
 		GLCD_DisplayString(5,1,1,"to begin");
 
 	}
-		GLCD_Clear(White);
-
+	GLCD_Clear(White);
+	//uses the seed counter for the random number generator
 	srand(soRandom);
 	GLCD_SetTextColor(Navy);
 	updateLEDs(tank.ammo);
 
-	// field set up
+	// draws the playing field
 	for(x = 0; x < 48; x++)
 	{
 		for(y = 0; y < 64; y++)
@@ -618,13 +750,6 @@ int main(void){
 			drawPixel(x,y,field[x][y]);
 		}
 	}
-	//end field set up (let's make this a function)
-	
-	printf("UART begin\n");
-	
-
-
-	//printf("is there another enemy? (%d, %d)\n " ,(enemyList->next->data).xLoc, (enemyList->next->data).yLoc);
 	os_sys_init(start_tasks);
  
 }
